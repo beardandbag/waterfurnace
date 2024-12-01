@@ -17,6 +17,10 @@ USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
               "Chrome/70.0.3538.77 Safari/537.36")
 WF_LOGIN_URL = 'https://symphony.mywaterfurnace.com/account/login'
 
+WF_SYMPHONY_HOST = "https://symphony.mywaterfurnace.com/api.php/awl/json/location/getlocationdata.php"
+WF_LOCATIONDATA_PATH = "/api.php/awl/json/location/getlocationdata.php"
+WF_USERDATA_PATH = "/user"
+
 FURNACE_MODE = (
     'Standby',
     'Fan Only',
@@ -106,6 +110,44 @@ class WaterFurnace(object):
         # For retry logic
         self.max_fails = max_fails
         self.fails = 0
+        self.energy_base_price = 0.17
+        self.userData = self._ws_get_user_data()
+        _LOGGER.warning(self.userData)
+        exit(1)
+        # self.gwids = self._ws_get_gwids()
+
+    def _ws_get_user_data(self):
+        hdrs = {
+            "user-agent": USER_AGENT,
+        }
+        # _LOGGER.debug("Req: %s" % req)
+        data = requests.post(WF_SYMPHONY_HOST + WF_USERDATA_PATH, headers=hdrs,
+                            cookies={"legal-acknowledge": "yes", },
+                            timeout=TIMEOUT, allow_redirects=False)
+        return data
+
+    def _ws_get_gwids(self):
+        data = dict(emailaddress=self.user, password=self.passwd, op="login", redirect="/")
+        hdrs = {
+            "user-agent": USER_AGENT,
+        }
+        res = requests.post(WF_SYMPHONY_HOST + WF_LOCATIONDATA_PATH, headers=hdrs,
+                            cookies={"legal-acknowledge": "yes",
+                                    },
+                            timeout=TIMEOUT, allow_redirects=False)
+
+        req = copy.deepcopy(DATA_REQUEST)
+        req["tid"] = self.tid
+
+        _LOGGER.debug("Req: %s" % req)
+        timer = threading.Timer(10.0, self._abort, [self])
+        timer.start()
+        self.ws.send(json.dumps(req))
+        _LOGGER.debug("Successful send")
+        data = self.ws.recv()
+        _LOGGER.debug("Successful recv")
+        timer.cancel()
+        return data
 
     def next_tid(self):
         self.tid = (self.tid + 1) % 100
@@ -218,6 +260,7 @@ class WaterFurnace(object):
                 time.sleep(self.fails * ERROR_INTERVAL)
         raise WFWebsocketClosedError(
             "Failed to refresh credentials after retries")
+
 
 
 class WFReading(object):
